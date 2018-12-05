@@ -8,5 +8,9 @@ precious: 0.925911
 recall: 0.996810  
 F1: 0.960053  
 
+hmm_tokenizer.py  
+precious: 0.984371  
+recall: 0.966150  
+F1: 0.975176  
 
 

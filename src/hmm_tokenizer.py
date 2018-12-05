@@ -114,20 +114,92 @@ class HmmTokenizer(Tokenizer):
         for state, count_dict in state_emit_count.iteritems():
             self.state_emit_prob[state] = self.compute_proba(count_dict)
 
-
-    def _cut(self, sentence):
+    def do_viterbi_decode(self, sentence):
         """切词, Viterbi解码
             遍历t=1...T上的所有路径的长度，取得最短路径
+            p(w1, w2) = p(s1)p(w1|s1)p(s2|s1)p(w2|s1)
         """
+        # 记录到达t时刻每个状态的最短路径长度，以及t-1时刻的出发状态
+        route = {}
+        steps = len(sentence)
+        if steps == 0:
+            return []
 
+        for t in range(steps):
+            route.setdefault(t, {})
+            # 路径
+            state_dict = {}
+            for state in ["B", "E", "S", "M"]:
+                # 遍历每个状态
+                if t == 0: 
+                    # 初始状态
+                    score = self.start_state_prob.get(state, \
+                            self.start_state_prob["NA"]) + \
+                            self.state_emit_prob[state].get(sentence[t], \
+                            self.state_emit_prob[state]["NA"])
 
+                    last_state = "start"
+                    route[t][state] = (score, last_state)
+                else:
+                    # 考虑上一步所有的状态
+                    scores = []
+                    for last_state in ["B", "E", "S", "M"]:
+                        # 取上一步状态下的最优概率*一步转移概率*发射概率
+                        score = route[t - 1][last_state][0] + \
+                                self.state_trans_prob[last_state].get(state, 
+                                        self.state_trans_prob[state]["NA"]) + \
+                                self.state_emit_prob[state].get(sentence[t], \
+                                self.state_emit_prob[state]["NA"])
+                        scores.append((score, last_state))
 
+                    score, last_state = sorted(scores, \
+                            key=lambda (x, y): x, reverse = True)[0]
 
+                    route[t][state] = (score, last_state)
+
+        best_route = []
+        best_last_state, (score, last_state) = \
+                sorted(route[steps - 1].iteritems(), key = lambda (x, y): y[0],
+                        reverse = True)[0]
+        best_route.append(best_last_state)
+        best_route.append(last_state)
+
+        for t in range(steps - 2, 0, -1):
+            score, last_state = route[t][last_state]
+            best_route.append(last_state)
+
+        best_route.reverse()
+
+        return best_route
+
+    def _cut(self, sentence):
+        best_route = self.do_viterbi_decode(sentence)
+        toks = []
+        tok = ""
+        for i in range(len(sentence)):
+            tok += sentence[i]
+
+            if best_route[i] in ["E", "S"]:
+                toks.append(tok)
+                tok = ""
+
+        if tok != "":
+            toks.append(tok)
+
+        return toks
 
 if __name__ == "__main__":
+    import dataset
+    from eval import Evaluation
+    test_set = dataset.load_test_set()
+    train_set = dataset.load_train_set()
+
     tokenizer = HmmTokenizer()
-    tokenizer.fit([[u"我", u"爱", u"北京", u"天安门"]])
-    print tokenizer.start_state_prob
-    print tokenizer.state_trans_prob
-    print tokenizer.state_emit_prob
+    tokenizer.fit(train_set)
+    
+    evaluator = Evaluation(test_set)
+    precious, recall, F1 = evaluator.eval(tokenizer)
+    print "precious: %f" % (precious)
+    print "recall: %f" % (recall)
+    print "F1: %f" % (F1)
 
